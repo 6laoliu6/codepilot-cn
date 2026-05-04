@@ -5,6 +5,10 @@ export type GenerateProjectPlanInput = {
   provider: ProviderId;
 };
 
+export type GenerateProjectPlanRequest = {
+  prompt: string;
+};
+
 export type TechStackItem = {
   name: string;
   reason: string;
@@ -30,4 +34,11 @@ export type ProjectPlanHistoryItem = {
   createdAt: string;
   provider: ProviderId;
   plan: ProjectPlan;
+};
+
+export type GenerateProjectPlanResponse = {
+  plan: ProjectPlan;
+  provider: ProviderId;
+  mode: "mock" | "mimo-ready";
+  fallbackReason?: string;
 };

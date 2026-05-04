@@ -3,9 +3,8 @@
 import { FormEvent, useEffect, useState } from "react";
 import { HistoryPanel } from "@/components/HistoryPanel";
 import { ProjectPlanView } from "@/components/ProjectPlanView";
-import { getProjectPlanProvider } from "@/lib/providers";
 import { clearProjectHistory, createHistoryItem, readProjectHistory, saveProjectHistoryItem } from "@/lib/storage";
-import type { ProjectPlan, ProjectPlanHistoryItem, ProviderId } from "@/lib/types";
+import type { GenerateProjectPlanResponse, ProjectPlan, ProjectPlanHistoryItem } from "@/lib/types";
 
 const samplePrompts = [
   "做一个中文编程学习路线生成器，面向刚入门的前端学习者。",
@@ -15,7 +14,9 @@ const samplePrompts = [
 
 export function ProjectGenerator() {
   const [prompt, setPrompt] = useState("");
-  const [providerId, setProviderId] = useState<ProviderId>("mock");
+  const [activePrompt, setActivePrompt] = useState("");
+  const [modelMode, setModelMode] = useState("Mock / MiMo Ready");
+  const [apiStatus, setApiStatus] = useState("服务端占位已完成");
   const [plan, setPlan] = useState<ProjectPlan | null>(null);
   const [history, setHistory] = useState<ProjectPlanHistoryItem[]>([]);
   const [error, setError] = useState("");
@@ -39,18 +40,30 @@ export function ProjectGenerator() {
     setIsGenerating(true);
 
     try {
-      const provider = getProjectPlanProvider(providerId);
-      const nextPlan = await provider.generate({
-        prompt: trimmedPrompt,
-        provider: providerId
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ prompt: trimmedPrompt })
       });
+      const data = (await response.json()) as Partial<GenerateProjectPlanResponse> & { error?: string };
+
+      if (!response.ok || !data.plan) {
+        throw new Error(data.error || "生成失败，请稍后再试。");
+      }
+
+      const nextPlan = data.plan;
       const historyItem = createHistoryItem({
         prompt: trimmedPrompt,
-        provider: providerId,
+        provider: nextPlan.provider,
         plan: nextPlan
       });
 
       setPlan(nextPlan);
+      setActivePrompt(trimmedPrompt);
+      setModelMode(data.mode === "mimo-ready" ? "MiMo Ready" : "Mock / MiMo Ready");
+      setApiStatus(data.fallbackReason ? "Mock fallback 已启用" : "服务端占位已完成");
       setHistory(saveProjectHistoryItem(historyItem));
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "生成失败，请稍后再试。");
@@ -61,8 +74,10 @@ export function ProjectGenerator() {
 
   function handleSelectHistory(item: ProjectPlanHistoryItem) {
     setPrompt(item.prompt);
-    setProviderId(item.provider);
+    setActivePrompt(item.prompt);
     setPlan(item.plan);
+    setModelMode(item.provider === "mimo" ? "MiMo Ready" : "Mock / MiMo Ready");
+    setApiStatus(item.provider === "mimo" ? "MiMo provider 占位链路" : "Mock fallback 已启用");
     setError("");
   }
 
@@ -83,12 +98,15 @@ export function ProjectGenerator() {
             <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-600">
               面向中文开发者和初学者的 AI 项目生成助手。用中文描述想法，快速得到一份能落地的 MVP 项目计划。
             </p>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-500">
+              当前版本为 MVP 原型，已预留 Xiaomi MiMo API 接入能力。
+            </p>
           </div>
 
-          <div className="grid grid-cols-3 gap-3 text-sm">
-            <Stat label="输出模块" value="7" tone="mint" />
-            <Stat label="存储方式" value="本地" tone="sun" />
-            <Stat label="模型状态" value="Mock" tone="coral" />
+          <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3 lg:min-w-[560px]">
+            <Stat label="当前模型模式" value={modelMode} tone="mint" />
+            <Stat label="存储方式" value="localStorage" tone="sun" />
+            <Stat label="API 接入状态" value={apiStatus} tone="coral" />
           </div>
         </header>
 
@@ -111,29 +129,11 @@ export function ProjectGenerator() {
                 />
               </label>
 
-              <div>
-                <p className="text-sm font-semibold text-zinc-800">模型 Provider</p>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setProviderId("mock")}
-                    className={`rounded border px-4 py-3 text-sm font-semibold transition ${
-                      providerId === "mock"
-                        ? "border-mint bg-emerald-50 text-emerald-700"
-                        : "border-zinc-200 bg-white text-zinc-600 hover:border-mint"
-                    }`}
-                  >
-                    Mock
-                  </button>
-                  <button
-                    type="button"
-                    disabled
-                    className="cursor-not-allowed rounded border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm font-semibold text-zinc-400"
-                    title="拿到 API Key 后接入"
-                  >
-                    MiMo 预留
-                  </button>
-                </div>
+              <div className="rounded border border-emerald-200 bg-emerald-50 px-4 py-3">
+                <p className="text-sm font-semibold text-emerald-800">服务端生成链路</p>
+                <p className="mt-1 text-sm leading-6 text-emerald-700">
+                  前端提交到 /api/generate，由服务端根据 MIMO_API_KEY 自动选择 MiMo 或 fallback 到 Mock。
+                </p>
               </div>
 
               {error ? <p className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
@@ -164,7 +164,7 @@ export function ProjectGenerator() {
             </div>
           </section>
 
-          <ProjectPlanView plan={plan} />
+          <ProjectPlanView plan={plan} prompt={activePrompt || prompt} />
 
           <HistoryPanel history={history} onSelect={handleSelectHistory} onClear={handleClearHistory} />
         </div>
@@ -181,9 +181,9 @@ function Stat({ label, value, tone }: { label: string; value: string; tone: "min
   }[tone];
 
   return (
-    <div className={`min-w-24 rounded border px-4 py-3 ${toneClass}`}>
+    <div className={`min-w-0 rounded border px-4 py-3 ${toneClass}`}>
       <p className="text-xs font-medium text-zinc-500">{label}</p>
-      <p className="mt-1 text-base font-semibold">{value}</p>
+      <p className="mt-1 break-words text-base font-semibold">{value}</p>
     </div>
   );
 }

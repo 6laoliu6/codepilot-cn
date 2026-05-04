@@ -2,14 +2,17 @@
 
 import { useState } from "react";
 import type { ReactNode } from "react";
+import { buildProjectPlanMarkdown, createMarkdownFileName } from "@/lib/exportMarkdown";
 import type { ProjectPlan } from "@/lib/types";
 
 type ProjectPlanViewProps = {
   plan: ProjectPlan | null;
+  prompt: string;
 };
 
-export function ProjectPlanView({ plan }: ProjectPlanViewProps) {
+export function ProjectPlanView({ plan, prompt }: ProjectPlanViewProps) {
   const [copied, setCopied] = useState(false);
+  const [exported, setExported] = useState(false);
 
   if (!plan) {
     return (
@@ -37,6 +40,26 @@ export function ProjectPlanView({ plan }: ProjectPlanViewProps) {
     window.setTimeout(() => setCopied(false), 1600);
   }
 
+  function handleExportMarkdown() {
+    if (!plan) {
+      return;
+    }
+
+    const markdown = buildProjectPlanMarkdown(plan, prompt);
+    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = createMarkdownFileName(plan.projectName);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setExported(true);
+    window.setTimeout(() => setExported(false), 1600);
+  }
+
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-panel">
       <div className="flex flex-col gap-4 border-b border-zinc-200 pb-5 sm:flex-row sm:items-start sm:justify-between">
@@ -45,12 +68,25 @@ export function ProjectPlanView({ plan }: ProjectPlanViewProps) {
           <h2 className="mt-2 text-2xl font-semibold text-ink">{plan.projectName}</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600">{plan.oneLine}</p>
         </div>
-        <span className="w-fit rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
-          {plan.provider.toUpperCase()}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handleExportMarkdown}
+            className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
+          >
+            {exported ? "已导出" : "导出 Markdown"}
+          </button>
+          <span className="w-fit rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
+            {plan.provider === "mimo" ? "MiMo Ready" : "Mock"}
+          </span>
+        </div>
       </div>
 
       <div className="divide-y divide-zinc-200">
+        <PlanSection title="原始需求">
+          <p className="rounded border border-zinc-200 bg-zinc-50 p-4 text-sm leading-6 text-zinc-700">{prompt}</p>
+        </PlanSection>
+
         <PlanSection title="需求拆解">
           <NumberedList items={plan.requirements} />
         </PlanSection>
@@ -88,7 +124,7 @@ export function ProjectPlanView({ plan }: ProjectPlanViewProps) {
             </button>
           }
         >
-          <pre className="quiet-scrollbar max-h-80 overflow-auto rounded border border-zinc-200 bg-zinc-50 p-4 whitespace-pre-wrap text-sm leading-6 text-zinc-700">
+          <pre className="quiet-scrollbar max-h-80 overflow-auto whitespace-pre-wrap rounded border border-zinc-200 bg-zinc-50 p-4 text-sm leading-6 text-zinc-700">
             {plan.readmeDraft}
           </pre>
         </PlanSection>
